@@ -9,7 +9,7 @@
 using namespace std;
 
 const char* SERVER_IP = "127.0.0.1";
-const int PORT = 5001;
+const int PORT = 5000;
 const int BUFFER_SIZE = 1024;
 
 int main() {
@@ -18,6 +18,7 @@ int main() {
     sockaddr_in serverAddr;
     char buffer[BUFFER_SIZE];
 
+    // инцилизация winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         cout << "Error WSAStartup failed." << endl;
         return 1;
@@ -32,10 +33,12 @@ int main() {
     }
     cout << "Socket created." << endl;
 
+    // настройка адреса сервера
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(PORT);
     inet_pton(AF_INET, SERVER_IP, &serverAddr.sin_addr);
 
+    // устанавливаем коннект
     if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
         cout << "Error. connect failed: " << WSAGetLastError() << endl;
         closesocket(clientSocket);
@@ -53,12 +56,10 @@ int main() {
             continue;
         }
 
-        int bytesSent = send(clientSocket, userInput.c_str(), (int)userInput.length(), 0);
-        if (bytesSent == SOCKET_ERROR) {
-            cout << "Error. send failed: " << WSAGetLastError() << endl;
-            break;
-        }
+        // отпрвка
+        send(clientSocket, userInput.c_str(), (int)userInput.length(), 0);
 
+        // приянли
         memset(buffer, 0, BUFFER_SIZE);
         int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE - 1, 0);
 
@@ -76,11 +77,12 @@ int main() {
         cout << "Server reply: " << buffer << endl;
 
         if (userInput == "exit") {
-            cout << "Exiting..." << endl;
-            break;
+            cout << "Exiting" << endl;
+            break; 
         }
     }
 
+    // закрытие
     closesocket(clientSocket);
     WSACleanup();
     cout << "Client Stopped." << endl;
