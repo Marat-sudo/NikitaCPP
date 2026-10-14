@@ -32,7 +32,7 @@ void broadcast(const string &message, SOCKET sender){
     if (it != clientsIps.end()){
         senderIp = it->second;
     }
-
+    // добавляем айпи адрес перед сообщением
     string fullMsg = "[" + senderIp + "]: " + message;
     for (SOCKET s: clients){
         if (s != sender){
@@ -170,6 +170,12 @@ int main(){
 
         char ipStr[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, INET_ADDRSTRLEN);
+        /*
+        AF_INET - семейство адресов
+        &clientAddr.sin_addr - получаем айпи адрес клиента
+        ipStr - сюда записываем айпи адрес в нужном формате
+        INET_ADDRSTRLEN - размер буффера
+        */ 
         string clietntIP = ipStr;
 
         // Для каждого клиента в поток
