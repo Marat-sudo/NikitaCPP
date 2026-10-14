@@ -2,24 +2,112 @@
 #include <cstring>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+#include <thread>
+#include <mutex> // Нужна чтобы потоки не конфликтовали между собой
+#include <vector>
+#include <algorithm>
+#include <string>
+#include <map>
+
+
 
 // тоже подключение библиотеки
 #pragma comment(lib, "Ws2_32.lib")
 
 using namespace std;
 
-const int PORT = 5001;
+const int PORT = 5000;
 const int BUFFER_SIZE = 1024;
+
+vector<SOCKET> clients;
+map<SOCKET, string> clientsIps;
+mutex clientMutex;
+
+void broadcast(const string &message, SOCKET sender){
+    // рассылка сообщений
+    lock_guard<mutex> lock(clientMutex);
+    string senderIp = "0.0.0.0";
+    auto it = clientsIps.find(sender);
+
+    if (it != clientsIps.end()){
+        senderIp = it->second;
+    }
+
+    string fullMsg = "[" + senderIp + "]: " + message;
+    for (SOCKET s: clients){
+        if (s != sender){
+            send(s, fullMsg.c_str(), (int)fullMsg.length(), 0);
+        }
+    }
+}
+
+
+void removeClient(SOCKET s){
+    // удаляет клиента из списка 
+    lock_guard<mutex> lock(clientMutex);
+    clients.erase(remove(clients.begin(), clients.end(), s), clients.end());
+}
+
+
+void handleClient(SOCKET clientSocket, string clientIp){
+    // обслуживает клиента
+    char buffer[BUFFER_SIZE];
+
+    {  // блокирует поток записи клиента в список только для него и после освобождает 
+        lock_guard<mutex> lock(clientMutex);
+        clients.push_back(clientSocket);
+        clientsIps[clientSocket] = clientIp;
+    }
+
+    cout << "Clietnt connect" << endl;
+
+   while (true)
+    {
+        
+        memset(buffer, 0, BUFFER_SIZE);
+        int butesReceived = recv(clientSocket, buffer, BUFFER_SIZE-1, 0);
+
+        if (butesReceived == SOCKET_ERROR){
+            cout << "Error. recv failed. " << WSAGetLastError() << endl;
+            break;
+        }
+
+        if (butesReceived == 0){
+            cout << "Client disconnect." << endl;
+            break;
+        }
+
+        buffer[butesReceived] = '\0';
+
+        cout << "Received: " << buffer << endl;
+
+        string response = "";
+        response += buffer;
+        broadcast(response, clientSocket);
+
+        // send(clientSocket, response.c_str(), (int)response.length(), 0);
+        // c_str() string -> char
+        if (strcmp(buffer, "exit") == 0){
+            cout << "Exit command received" << endl;
+            break;
+        }
+        
+         
+    } 
+    removeClient(clientSocket);
+    closesocket(clientSocket);
+    cout << "client disconect" << endl;
+}
+
+
 
 int main(){
     WSADATA wsaDATA;
     SOCKET listenSocket = INVALID_SOCKET;
-    SOCKET clientSocket = INVALID_SOCKET;
     sockaddr_in serverAddr;
     sockaddr_in clientAddr;
 
     int clientAddrLen = sizeof(clientAddr);
-    char buffer[BUFFER_SIZE];
 
     // 1 - инцализация winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaDATA) != 0) {
@@ -69,52 +157,31 @@ int main(){
 
     cout << "Listenning..." << endl;
 
-    // 5 - accept - режим подключения
-    clientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientAddrLen);
-    if (clientSocket == INVALID_SOCKET){
-        cout << "Error. accept failed. " << WSAGetLastError() << endl;
-        closesocket(listenSocket);
-        WSACleanup();
-        return 1;
-    }
+    // 5. приём клиента в цикле
+    while (true)
+    {
+        clientAddrLen = sizeof(clientAddr);
+        SOCKET clientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientAddrLen);
+        
+        if (clientSocket == INVALID_SOCKET){
+            cout << "Error. accept failed. " << WSAGetLastError() << endl;
+            continue;
+        }
 
-    cout << "Client connected!" << endl;
+        char ipStr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, INET_ADDRSTRLEN);
+        string clietntIP = ipStr;
+
+        // Для каждого клиента в поток
+        thread t(handleClient, clientSocket, clietntIP);
+        t.detach();
+    }
+    
 
 
     // 6 - send/recv - обмен данными
-    while (true)
-    {
-        
-        memset(buffer, 0, BUFFER_SIZE);
-        int butesReceived = recv(clientSocket, buffer, BUFFER_SIZE-1, 0);
-
-        if (butesReceived == SOCKET_ERROR){
-            cout << "Error. recv failed. " << WSAGetLastError() << endl;
-            break;
-        }
-
-        if (butesReceived == 0){
-            cout << "Client disconnect." << endl;
-            break;
-        }
-
-        buffer[butesReceived] = '\0';
-
-        cout << "Received: " << buffer << endl;
-
-        string response = "Server got: ";
-        response += buffer;
-        send(clientSocket, response.c_str(), (int)response.length(), 0);
-        // c_str() string -> char
-        if (strcmp(buffer, "exit") == 0){
-            cout << "Exit command received" << endl;
-            break;
-        }
-        
-        
-    }
+    
     // 7 - закрытие всех сокетов
-    closesocket(clientSocket);
     closesocket(listenSocket);
 
     WSACleanup();
