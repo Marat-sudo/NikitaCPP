@@ -81,17 +81,17 @@ void handleClient(SOCKET clientSocket, string clientIp){
 
         cout << "Received: " << buffer << endl;
 
+        
+        if (strcmp(buffer, "exit") == 0){
+            cout << "Exit command received" << endl;
+            break;
+        }
         string response = "";
         response += buffer;
         broadcast(response, clientSocket);
 
         // send(clientSocket, response.c_str(), (int)response.length(), 0);
         // c_str() string -> char
-        if (strcmp(buffer, "exit") == 0){
-            cout << "Exit command received" << endl;
-            break;
-        }
-        
          
     } 
     removeClient(clientSocket);

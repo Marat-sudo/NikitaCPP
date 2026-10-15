@@ -152,7 +152,7 @@ int main() {
         }
         else {
             // бог с этим WinAPI, оставлю бесконечный цикл с задержкой
-            this_thread::sleep_for(chrono::seconds(1)); 
+            this_thread::sleep_for(chrono::milliseconds(200)); 
         }
     }
 
