@@ -4,24 +4,10 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <thread>
-#include <mutex>
-
-// для нормальной работы чата
 #include <deque>
+#include <mutex>
 #include <conio.h>
 
-/*
-    В изначальной версии был момент, что при вводе сообщения если кто-то отправит своё
-    сообщние, то это сообщение станет твоим текстом, и из-за этого ввод был кривой
-
-    Я изучил, что вообще можно сделать, для исправления этого
-    По итогу можно сделать, чтобы при получении сообщения буффер ввода стирался и новое
-    сообщение печаталось, но в этом случае при новых сообщениям весь набранный текст пропадал
-    
-    Можно было сделать через WinAPI и обойтись без бесконенчого цикла с использованием 
-    WaitForMultipleObjects, но в этот метод более громоздкий в плане кода + к сетевому программированию
-    не сильно относится
-*/ 
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -36,18 +22,17 @@ deque<string> commingMsgs;
 string userInput;
 
 
-// Функция перерисовки экрана 
-void redrawConsole() {
-    // Возврат каретки в начало строки 
-    cout << "\r" << string(100, ' ') << "\r";
+void redrawConsole(){
+    cout << "\r" << string(120, ' ') << "\r";
 
-    while (!commingMsgs.empty()) {
+    while(!commingMsgs.empty()){
         cout << commingMsgs.front() << endl;
         commingMsgs.pop_front();
     }
 
-    cout << "you: " << userInput << flush;
+    cout << "text: " << userInput << flush;
 }
+
 
 void reciveLoop(SOCKET clientSocket){
     char buffer[BUFFER_SIZE];
@@ -67,12 +52,9 @@ void reciveLoop(SOCKET clientSocket){
         }
 
         buffer[bytesReceived] = '\0';
-
-        {
-            lock_guard<mutex> lock(consoleMutex);
-            commingMsgs.push_back(string(buffer));
-            redrawConsole();
-        }
+        commingMsgs.push_back(string(buffer));
+        redrawConsole();
+        
     }
 }
 
@@ -81,7 +63,7 @@ int main() {
     WSADATA wsaData;
     SOCKET clientSocket = INVALID_SOCKET;
     sockaddr_in serverAddr;
-    
+    char buffer[BUFFER_SIZE];
 
     // инцилизация winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -112,42 +94,35 @@ int main() {
     }
     cout << "Connected to server!" << endl;
 
-    {
-        lock_guard<mutex> losk(consoleMutex);
-        redrawConsole();
-    }
-
-    thread t(reciveLoop, clientSocket);
-    t.detach();
-
     while (true) {
-        // _kbhit проверяет нажата ли была какая-то клавиша 
         if (_kbhit()){
-            // _getch - считывает один символ 
             int ch = _getch();
-            lock_guard<mutex> lock(consoleMutex);
 
-            if (ch == '\r') { // Нажатие Enter
-                cout << endl;
-                if (!userInput.empty()) {
+            if (ch == '\r') {
+                lock_guard<mutex> losk(consoleMutex);
+
+                if (!userInput.empty()){
                     send(clientSocket, userInput.c_str(), (int)userInput.length(), 0);
-                    
-                    if (userInput == "exit") {
-                        break;
-                    }
+                    commingMsgs.push_back(userInput);
+                }
+
+                if (userInput == "exit"){
+                    break;
                 }
                 userInput.clear();
                 redrawConsole();
             }
-            else if (ch == '\b') { // Нажатие Backspace
-                if (!userInput.empty()) {
+
+            else if (ch == '\b'){
+                if (!userInput.empty()){
                     userInput.pop_back();
+                    lock_guard<mutex> losk(consoleMutex);
                     redrawConsole();
                 }
+
             }
-            else  { 
-                userInput += (char)ch;
-                redrawConsole();
+            else {
+                this_thread::sleep_for(chrono::seconds(1));
             }
         }
         else {
