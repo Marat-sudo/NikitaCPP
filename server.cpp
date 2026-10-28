@@ -2,13 +2,21 @@
 #include <cstring>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+#include <thread>
+#include <mutex> // Нужна чтобы потоки не конфликтовали между собой
+#include <vector>
+#include <algorithm>
+#include <string>
+#include <map>
+#include <fstream>
+
 
 // тоже подключение библиотеки
 #pragma comment(lib, "Ws2_32.lib")
 
 using namespace std;
 
-const int PORT = 5001;
+const int PORT = 5000;
 const int BUFFER_SIZE = 1024;
 
 vector<SOCKET> clients;
@@ -24,7 +32,7 @@ void broadcast(const string &message, SOCKET sender){
     if (it != clientsIps.end()){
         senderIp = it->second;
     }
-
+    // добавляем айпи адрес перед сообщением
     string fullMsg = "[" + senderIp + "]: " + message;
     for (SOCKET s: clients){
         if (s != sender){
@@ -39,6 +47,7 @@ void removeClient(SOCKET s){
     lock_guard<mutex> lock(clientMutex);
     clients.erase(remove(clients.begin(), clients.end(), s), clients.end());
 }
+
 
 
 void handleClient(SOCKET clientSocket, string clientIp){
@@ -73,17 +82,17 @@ void handleClient(SOCKET clientSocket, string clientIp){
 
         cout << "Received: " << buffer << endl;
 
+        
+        if (strcmp(buffer, "exit") == 0){
+            cout << "Exit command received" << endl;
+            break;
+        }
         string response = "";
         response += buffer;
         broadcast(response, clientSocket);
 
         // send(clientSocket, response.c_str(), (int)response.length(), 0);
         // c_str() string -> char
-        if (strcmp(buffer, "exit") == 0){
-            cout << "Exit command received" << endl;
-            break;
-        }
-        
          
     } 
     removeClient(clientSocket);
@@ -96,12 +105,10 @@ void handleClient(SOCKET clientSocket, string clientIp){
 int main(){
     WSADATA wsaDATA;
     SOCKET listenSocket = INVALID_SOCKET;
-    SOCKET clientSocket = INVALID_SOCKET;
     sockaddr_in serverAddr;
     sockaddr_in clientAddr;
 
     int clientAddrLen = sizeof(clientAddr);
-    char buffer[BUFFER_SIZE];
 
     // 1 - инцализация winsock
     if (WSAStartup(MAKEWORD(2, 2), &wsaDATA) != 0) {
@@ -151,32 +158,25 @@ int main(){
 
     cout << "Listenning..." << endl;
 
-    // 5 - accept - режим подключения
-    clientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientAddrLen);
-    if (clientSocket == INVALID_SOCKET){
-        cout << "Error. accept failed. " << WSAGetLastError() << endl;
-        closesocket(listenSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    cout << "Client connected!" << endl;
-
-
-    // 6 - send/recv - обмен данными
+    // 5. приём клиента в цикле
     while (true)
     {
+        clientAddrLen = sizeof(clientAddr);
+        SOCKET clientSocket = accept(listenSocket, (sockaddr*)&clientAddr, &clientAddrLen);
         
-        memset(buffer, 0, BUFFER_SIZE);
-        int butesReceived = recv(clientSocket, buffer, BUFFER_SIZE-1, 0);
-
-        if (butesReceived == SOCKET_ERROR){
-            cout << "Error. recv failed. " << WSAGetLastError() << endl;
-            break;
+        if (clientSocket == INVALID_SOCKET){
+            cout << "Error. accept failed. " << WSAGetLastError() << endl;
+            continue;
         }
 
         char ipStr[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, ipStr, INET_ADDRSTRLEN);
+        /*
+        AF_INET - семейство адресов
+        &clientAddr.sin_addr - получаем айпи адрес клиента
+        ipStr - сюда записываем айпи адрес в нужном формате
+        INET_ADDRSTRLEN - размер буффера
+        */ 
         string clietntIP = ipStr;
 
         // Для каждого клиента в поток
@@ -189,7 +189,6 @@ int main(){
     // 6 - send/recv - обмен данными
     
     // 7 - закрытие всех сокетов
-    closesocket(clientSocket);
     closesocket(listenSocket);
 
     WSACleanup();
